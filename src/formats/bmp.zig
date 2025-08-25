@@ -62,7 +62,8 @@ fn setData(alloc: std.mem.Allocator, width: usize, height: usize, data: []u8) []
 
     for (0..height) |y| {
         for (0..width) |x| {
-            const idx = (y * width + x) * 3;
+            const row_idx = height - 1 - y;
+            const idx = (row_idx * width + x) * 3;
             const bgr = setRGB(data[idx], data[idx + 1], data[idx + 2]);
 
             const out_idx = (y * width + x) * 4;
