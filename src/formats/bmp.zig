@@ -125,9 +125,7 @@ fn flatten_header(self: Self) []u8 {
 }
 
 pub fn create_image(self: Self, file_name: []const u8) !void {
-    const file = try std.fs.cwd().createFile(file_name, .{
-        .read = true,
-    });
+    const file = try std.fs.cwd().createFile(file_name, .{});
     defer file.close();
 
     const header = self.flatten_header();
