@@ -1,5 +1,9 @@
 const std = @import("std");
 
+const utils = @import("utils");
+const u32le = utils.u32le;
+const u16le = utils.u16le;
+
 const Self = @This();
 
 alloc: std.mem.Allocator,
@@ -75,22 +79,6 @@ fn setData(alloc: std.mem.Allocator, width: usize, height: usize, data: []u8) []
     }
 
     return out;
-}
-
-fn u32le(n: u32) [4]u8 {
-    const o1: u8 = @intCast(((n >> 24) & 0xff));
-    const o2: u8 = @intCast(((n >> 16) & 0xff));
-    const o3: u8 = @intCast(((n >> 8) & 0xff));
-    const o4: u8 = @intCast(((n >> 0) & 0xff));
-
-    return .{ o4, o3, o2, o1 };
-}
-
-fn u16le(n: u16) [2]u8 {
-    const o1: u8 = @intCast(((n >> 8) & 0xff));
-    const o2: u8 = @intCast(((n >> 0) & 0xff));
-
-    return .{ o2, o1 };
 }
 
 pub fn create(alloc: std.mem.Allocator, width: u32, height: u32, data: []u8) Self {
