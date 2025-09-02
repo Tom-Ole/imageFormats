@@ -173,4 +173,13 @@ const PLTE = struct {
 };
 
 // https://libpng.org/pub/png/spec/1.2/PNG-Chunks.html
-const IDAT = struct {};
+const IDAT = struct {
+
+
+    pub fn create(alloc: std.mem.Allocator) IDAT  {
+        return .{
+
+        }
+    }
+
+};
