@@ -23,7 +23,7 @@ pub fn main() !void {
         }
     }
 
-    const image = try png.create(alloc);
+    const image = try png.create(alloc, test_data);
     _ = image;
 }
 

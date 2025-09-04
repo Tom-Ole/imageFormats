@@ -7,34 +7,30 @@ const u16le = utils.u16le;
 
 const Self = @This();
 
-header: Header,
+alloc: std.mem.Allocator,
+signiture: [8]u8,
+ihdr: IHDR,
+plte: PLTE,
+idat: IDAT,
+iend: IEND,
 
-pub fn create(alloc: std.mem.Allocator) !Self {
+// TODO make this more robust, espeacially all cases with color_types etc...
+pub fn create(alloc: std.mem.Allocator, data: []u8) !Self {
+    const signiture: [8]u8 = .{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a }; // ASCII: \211   P   N   G  \r  \n \032 \n
+    const _IHDR = IHDR.create(300, 300, 16, 3, 1, 1, 1); // TODO: Meaningfull arguments
+    const _PLTE = try PLTE.create(alloc, _IHDR.color_type, 255);
+    const _IDAT = IDAT.create(alloc, data);
+    const _IEND = IEND.create(alloc);
+
     return .{
-        .header = try Header.create(alloc),
+        .alloc = alloc,
+        .signiture = signiture,
+        .ihdr = _IHDR,
+        .plte = _PLTE,
+        .idat = _IDAT,
+        .iend = _IEND,
     };
 }
-
-const Header = struct {
-    alloc: std.mem.Allocator,
-    signiture: [8]u8,
-    ihdr: IHDR,
-    plte: PLTE,
-
-    // TODO make this more robust, espeacially all cases with color_types etc...
-    pub fn create(alloc: std.mem.Allocator) !Header {
-        const signiture: [8]u8 = .{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a }; // ASCII: \211   P   N   G  \r  \n \032 \n
-        const _IHDR = IHDR.create(300, 300, 16, 3, 1, 1, 1); // TODO: Meaningfull arguments
-        const _PLTE = try PLTE.create(alloc, _IHDR.color_type, 255);
-
-        return .{
-            .alloc = alloc,
-            .signiture = signiture,
-            .ihdr = _IHDR,
-            .plte = _PLTE,
-        };
-    }
-};
 
 const Chunk = struct {
     // Length of only the chunk_data
@@ -77,6 +73,7 @@ const Chunk = struct {
     }
 };
 
+// The IDHR Chunk contains the image essetial metadata
 const IHDR = struct {
     width: u32,
     height: u32,
@@ -127,10 +124,11 @@ const IHDR = struct {
     }
 };
 
-// must appear for color type 3, and can appear for color types 2 and 6;
-// it must not appear for color types 0 and 4.
-// If this chunk does appear, it must precede the first IDAT chunk.
+// PLTE Chunk contains the list of colors of the based image
 const PLTE = struct {
+    // must appear for color type 3, and can appear for color types 2 and 6;
+    // it must not appear for color types 0 and 4.
+    // If this chunk does appear, it must precede the first IDAT chunk.
     alloc: *const std.mem.Allocator,
     color_type: u8,
     entries: []u8,
@@ -173,13 +171,36 @@ const PLTE = struct {
 };
 
 // https://libpng.org/pub/png/spec/1.2/PNG-Chunks.html
+// IDAT Chunk contains the actual iamge data 
 const IDAT = struct {
 
+    alloc: std.mem.Allocator,
+    data: []u8,
 
-    pub fn create(alloc: std.mem.Allocator) IDAT  {
+    pub fn create(alloc: std.mem.Allocator, data: []u8) IDAT  {
         return .{
-
-        }
+            .alloc = alloc,
+            .data = data
+        };
     }
 
+};
+
+// The IEND chunk marks the end of the PNG datastream
+// Its must appear at the end of the file
+// its an empty chunk
+const IEND = struct {
+    
+    alloc: std.mem.Allocator,
+
+    pub fn create(alloc: std.mem.Allocator) IEND {
+        return .{
+            .alloc = alloc,
+        };
+    }
+
+    pub fn to_chunk(self: IEND) Chunk {
+        _ = self;
+        return Chunk.create(.{'I','E', 'N', 'D'}, &[0]u8{});
+    }
 };
