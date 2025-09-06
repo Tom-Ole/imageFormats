@@ -17,7 +17,7 @@ iend: IEND,
 // TODO make this more robust, espeacially all cases with color_types etc...
 pub fn create(alloc: std.mem.Allocator, data: []u8) !Self {
     const signiture: [8]u8 = .{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a }; // ASCII: \211   P   N   G  \r  \n \032 \n
-    const _IHDR = IHDR.create(300, 300, 16, 3, 1, 1, 1); // TODO: Meaningfull arguments
+    const _IHDR = try IHDR.create(300, 300, 16, 0, 0, 16, 1); // TODO: Meaningfull arguments
     const _PLTE = try PLTE.create(alloc, _IHDR.color_type, 255);
     const _IDAT = IDAT.create(alloc, data);
     const _IEND = IEND.create(alloc);
@@ -94,7 +94,21 @@ const IHDR = struct {
     filter_method: u8,
     interlace_method: u8,
 
-    pub fn create(width: u32, height: u32, bit_depth: u8, color_type: u8, compresion_method: u8, filter_method: u8, interlace_method: u8) IHDR {
+    pub fn create(width: u32, height: u32, bit_depth: u8, color_type: u8, compresion_method: u8, filter_method: u8, interlace_method: u8) !IHDR {
+        
+        const valid_color_type_bit_depth = switch(color_type) {
+            0 => contains(&[_]u8{1, 2, 4, 8 , 16}, bit_depth),
+            2 => contains(&[_]u8{8 , 16}, bit_depth),
+            3 => contains(&[_]u8{1, 2, 4, 8}, bit_depth),
+            4 => contains(&[_]u8{8 , 16}, bit_depth),
+            6 => contains(&[_]u8{8 , 16}, bit_depth),
+            else => false,
+        };
+
+        std.debug.print("Bit depth: {}, color_type: {}, valid: {}\n", .{bit_depth, color_type, valid_color_type_bit_depth});
+        
+        if (!valid_color_type_bit_depth) return error.InvalidBithDepthColorType;
+
         return .{
             .width = width,
             .height = height,
@@ -104,6 +118,10 @@ const IHDR = struct {
             .filter_method = filter_method,
             .interlace_method = interlace_method,
         };
+    }
+
+    fn contains(list: []const u8, x: u8) bool {
+        return std.mem.containsAtLeast(u8, list, 1, &[_]u8{x});
     }
 
     pub fn to_byte_array(self: IHDR, alloc: std.mem.Allocator) [13]u8 {
