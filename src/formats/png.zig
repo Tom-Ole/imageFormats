@@ -10,16 +10,27 @@ const Self = @This();
 alloc: std.mem.Allocator,
 signiture: [8]u8,
 ihdr: IHDR,
-plte: PLTE,
+plte: ?PLTE,
 idat: IDAT,
 iend: IEND,
 
 // TODO make this more robust, espeacially all cases with color_types etc...
-pub fn create(alloc: std.mem.Allocator, data: []u8) !Self {
+pub fn create(alloc: std.mem.Allocator, width: u32, height: u32, data: []u8) !Self {
     const signiture: [8]u8 = .{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a }; // ASCII: \211   P   N   G  \r  \n \032 \n
-    const _IHDR = try IHDR.create(300, 300, 16, 0, 0, 16, 1); // TODO: Meaningfull arguments
-    const _PLTE = try PLTE.create(alloc, _IHDR.color_type, 255);
-    const _IDAT = IDAT.create(alloc, data);
+    const _IHDR = try IHDR.create(width, height, 8, 2, 0, 0, 0); // TODO: Meaningfull arguments
+
+    var _PLTE: ?PLTE = null;
+    var idat_data: []u8 = undefined;
+
+    if (_IHDR.color_type == 3) {
+        const quant = try Quant.quantiozeImageToPalette(alloc, data);
+        _PLTE = try PLTE.create(alloc, _IHDR.color_type, _IHDR.bit_depth, quant);
+        idat_data = quant.indexed;
+    } else {
+        idat_data = data; // raw RGB or RGBA depending on color_type
+    }
+
+    const _IDAT = IDAT.create(alloc, idat_data);
     const _IEND = IEND.create(alloc);
 
     return .{
@@ -95,7 +106,7 @@ const IHDR = struct {
     interlace_method: u8,
 
     pub fn create(width: u32, height: u32, bit_depth: u8, color_type: u8, compresion_method: u8, filter_method: u8, interlace_method: u8) !IHDR {
-        
+
         const valid_color_type_bit_depth = switch(color_type) {
             0 => contains(&[_]u8{1, 2, 4, 8 , 16}, bit_depth),
             2 => contains(&[_]u8{8 , 16}, bit_depth),
@@ -106,7 +117,8 @@ const IHDR = struct {
         };
 
         std.debug.print("Bit depth: {}, color_type: {}, valid: {}\n", .{bit_depth, color_type, valid_color_type_bit_depth});
-        
+
+
         if (!valid_color_type_bit_depth) return error.InvalidBithDepthColorType;
 
         return .{
@@ -142,6 +154,79 @@ const IHDR = struct {
     }
 };
 
+
+const Quant = struct {
+    indexed: []u8,
+    palette: []u8,
+
+    const Color = struct {
+        r: u8,
+        g: u8,
+        b: u8,
+
+        pub fn eql(a: Color, b: Color) bool {
+            return a.r == b.r and a.g == b.g and a.b == b.b;
+        }
+
+        pub fn hash(self: Color) u32 {
+            // Simple 24-bit hash
+            const ur: u32 = @intCast(self.r);
+            const ub: u32 = @intCast(self.g);
+            const ug: u32 = @intCast(self.b);
+            const hash_u32: u32 = ur << 16 | ug << 8 | ub;
+            return hash_u32;
+        }
+    };
+
+    pub fn quantiozeImageToPalette(alloc: std.mem.Allocator, data: []const u8) !Quant {
+        const max_colors = 256;
+        const pixel_count = data.len / 3;
+
+
+        const Map = std.AutoHashMap(Quant.Color, u8);
+        var palette_map = Map.init(alloc);
+
+        var palette_buf = try alloc.alloc(u8, max_colors * 3);
+        var indexed_buf = try alloc.alloc(u8, pixel_count);
+
+        var next_index: usize = 0;
+
+        var i: usize = 0;
+        while (i < data.len) : (i += 3) {
+            if (next_index >= 256) {
+                std.debug.print("Next_index: {};  i: {} \n", .{next_index, i}); 
+                return error.TooManyUniqueColors;
+            }
+            const color = Color{ 
+                .r = data[i],
+                .g = data[i+1],
+                .b = data[i+2],
+            };
+
+            const gop = try palette_map.getOrPut(color);
+            if (!gop.found_existing) {
+                if (next_index >= max_colors) {
+                    return error.TooManyUniqueColors;
+                }
+
+                // Wrtite Palette
+                palette_buf[next_index * 3 + 0] = color.r;
+                palette_buf[next_index * 3 + 1] = color.g;
+                palette_buf[next_index * 3 + 2] = color.b;
+                gop.value_ptr.* = @as(u8, @intCast(next_index));
+                next_index += 1;
+            }
+
+            indexed_buf[i / 3] = gop.value_ptr.*;
+        }
+
+        return .{
+            .indexed = indexed_buf,
+            .palette = palette_buf[0..next_index*3],
+        };
+    }
+};
+
 // PLTE Chunk contains the list of colors of the based image
 const PLTE = struct {
     // must appear for color type 3, and can appear for color types 2 and 6;
@@ -149,16 +234,35 @@ const PLTE = struct {
     // If this chunk does appear, it must precede the first IDAT chunk.
     alloc: *const std.mem.Allocator,
     color_type: u8,
+    bit_depth: u8,
     entries: []u8,
 
-    pub fn create(alloc: std.mem.Allocator, color_type: u8, num_entries: usize) !PLTE {
+
+    pub fn create(alloc: std.mem.Allocator, color_type: u8, bit_depth: u8, quant: Quant) !PLTE {
+        const num_entries = quant.palette.len / 3;
+
         if (num_entries == 0 or num_entries > 256) return error.InvalidPaletteSize;
-        std.debug.assert(num_entries % 3 == 0);
+
+        var entries = try alloc.alloc(u8, num_entries * 3);
+
+        for (quant.palette, 0..) |_, i| {
+            if (i %  3 == 0) {
+                const j = i / 3;
+                const r = quant.palette[i];
+                const g = quant.palette[i+1];
+                const b = quant.palette[i+2];
+
+                entries[j * 3 + 0] = r;
+                entries[j * 3 + 1] = g;
+                entries[j * 3 + 2] = b;
+            }
+        }
 
         return .{
             .alloc = &alloc,
             .color_type = color_type,
-            .entries = try alloc.alloc(u8, num_entries * 3),
+            .bit_depth = bit_depth,
+            .entries = entries,
         };
     }
 
@@ -168,9 +272,25 @@ const PLTE = struct {
 
     pub fn set_palettes(self: PLTE) void {
         _ = self;
-        //TODO: https://libpng.org/pub/png/spec/1.2/PNG-Encoders.html#E.Suggested-palettes
+        //TODO:
+        //https://libpng.org/pub/png/spec/1.2/PNG-Encoders.html#E.Suggested-palettes
         return;
     }
+
+    // Color Type 3 (indexed color):
+    // First entry is referenced by pixel value 0, the second by pixel value 1
+    pub fn set_indexed_color() void {
+        return;
+    }
+
+    // Color type 2 and 6 (ture color):
+    // Suggested-palettes from 1 to 256
+    // Recomended encoder: 
+    // https://libpng.org/pub/png/spec/1.2/PNG-Encoders.html#E.Suggested-palettes
+    pub fn set_true_color_with_alpha() void {
+        return;
+    }
+
 
     pub fn set_entry(self: *PLTE, i: usize, r: u8, g: u8, b: u8) !void {
         if (i >= self.entries.len / 3) return error.IndexOutOfRange;
@@ -208,7 +328,7 @@ const IDAT = struct {
 // Its must appear at the end of the file
 // its an empty chunk
 const IEND = struct {
-    
+
     alloc: std.mem.Allocator,
 
     pub fn create(alloc: std.mem.Allocator) IEND {

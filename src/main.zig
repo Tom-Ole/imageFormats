@@ -22,8 +22,8 @@ pub fn main() !void {
             test_data[idx + 2] = b;
         }
     }
-
-    const image = try png.create(alloc, test_data);
+    // TODO: Test with grayscale for PLTE test.
+    const image = try png.create(alloc, width, height, test_data);
     _ = image;
 }
 
