@@ -106,18 +106,16 @@ const IHDR = struct {
     interlace_method: u8,
 
     pub fn create(width: u32, height: u32, bit_depth: u8, color_type: u8, compresion_method: u8, filter_method: u8, interlace_method: u8) !IHDR {
-
-        const valid_color_type_bit_depth = switch(color_type) {
-            0 => contains(&[_]u8{1, 2, 4, 8 , 16}, bit_depth),
-            2 => contains(&[_]u8{8 , 16}, bit_depth),
-            3 => contains(&[_]u8{1, 2, 4, 8}, bit_depth),
-            4 => contains(&[_]u8{8 , 16}, bit_depth),
-            6 => contains(&[_]u8{8 , 16}, bit_depth),
+        const valid_color_type_bit_depth = switch (color_type) {
+            0 => contains(&[_]u8{ 1, 2, 4, 8, 16 }, bit_depth),
+            2 => contains(&[_]u8{ 8, 16 }, bit_depth),
+            3 => contains(&[_]u8{ 1, 2, 4, 8 }, bit_depth),
+            4 => contains(&[_]u8{ 8, 16 }, bit_depth),
+            6 => contains(&[_]u8{ 8, 16 }, bit_depth),
             else => false,
         };
 
-        std.debug.print("Bit depth: {}, color_type: {}, valid: {}\n", .{bit_depth, color_type, valid_color_type_bit_depth});
-
+        std.debug.print("Bit depth: {}, color_type: {}, valid: {}\n", .{ bit_depth, color_type, valid_color_type_bit_depth });
 
         if (!valid_color_type_bit_depth) return error.InvalidBithDepthColorType;
 
@@ -154,7 +152,6 @@ const IHDR = struct {
     }
 };
 
-
 const Quant = struct {
     indexed: []u8,
     palette: []u8,
@@ -182,7 +179,6 @@ const Quant = struct {
         const max_colors = 256;
         const pixel_count = data.len / 3;
 
-
         const Map = std.AutoHashMap(Quant.Color, u8);
         var palette_map = Map.init(alloc);
 
@@ -194,13 +190,13 @@ const Quant = struct {
         var i: usize = 0;
         while (i < data.len) : (i += 3) {
             if (next_index >= 256) {
-                std.debug.print("Next_index: {};  i: {} \n", .{next_index, i}); 
+                std.debug.print("Next_index: {};  i: {} \n", .{ next_index, i });
                 return error.TooManyUniqueColors;
             }
-            const color = Color{ 
+            const color = Color{
                 .r = data[i],
-                .g = data[i+1],
-                .b = data[i+2],
+                .g = data[i + 1],
+                .b = data[i + 2],
             };
 
             const gop = try palette_map.getOrPut(color);
@@ -222,7 +218,7 @@ const Quant = struct {
 
         return .{
             .indexed = indexed_buf,
-            .palette = palette_buf[0..next_index*3],
+            .palette = palette_buf[0 .. next_index * 3],
         };
     }
 };
@@ -237,7 +233,6 @@ const PLTE = struct {
     bit_depth: u8,
     entries: []u8,
 
-
     pub fn create(alloc: std.mem.Allocator, color_type: u8, bit_depth: u8, quant: Quant) !PLTE {
         const num_entries = quant.palette.len / 3;
 
@@ -246,11 +241,11 @@ const PLTE = struct {
         var entries = try alloc.alloc(u8, num_entries * 3);
 
         for (quant.palette, 0..) |_, i| {
-            if (i %  3 == 0) {
+            if (i % 3 == 0) {
                 const j = i / 3;
                 const r = quant.palette[i];
-                const g = quant.palette[i+1];
-                const b = quant.palette[i+2];
+                const g = quant.palette[i + 1];
+                const b = quant.palette[i + 2];
 
                 entries[j * 3 + 0] = r;
                 entries[j * 3 + 1] = g;
@@ -285,12 +280,11 @@ const PLTE = struct {
 
     // Color type 2 and 6 (ture color):
     // Suggested-palettes from 1 to 256
-    // Recomended encoder: 
+    // Recomended encoder:
     // https://libpng.org/pub/png/spec/1.2/PNG-Encoders.html#E.Suggested-palettes
     pub fn set_true_color_with_alpha() void {
         return;
     }
-
 
     pub fn set_entry(self: *PLTE, i: usize, r: u8, g: u8, b: u8) !void {
         if (i >= self.entries.len / 3) return error.IndexOutOfRange;
@@ -309,26 +303,20 @@ const PLTE = struct {
 };
 
 // https://libpng.org/pub/png/spec/1.2/PNG-Chunks.html
-// IDAT Chunk contains the actual iamge data 
+// IDAT Chunk contains the actual iamge data
 const IDAT = struct {
-
     alloc: std.mem.Allocator,
     data: []u8,
 
-    pub fn create(alloc: std.mem.Allocator, data: []u8) IDAT  {
-        return .{
-            .alloc = alloc,
-            .data = data
-        };
+    pub fn create(alloc: std.mem.Allocator, data: []u8) IDAT {
+        return .{ .alloc = alloc, .data = data };
     }
-
 };
 
 // The IEND chunk marks the end of the PNG datastream
 // Its must appear at the end of the file
 // its an empty chunk
 const IEND = struct {
-
     alloc: std.mem.Allocator,
 
     pub fn create(alloc: std.mem.Allocator) IEND {
@@ -339,6 +327,6 @@ const IEND = struct {
 
     pub fn to_chunk(self: IEND) Chunk {
         _ = self;
-        return Chunk.create(.{'I','E', 'N', 'D'}, &[0]u8{});
+        return Chunk.create(.{ 'I', 'E', 'N', 'D' }, &[0]u8{});
     }
 };
